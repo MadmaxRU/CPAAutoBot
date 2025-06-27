@@ -56,5 +56,5 @@ async def submit(message: types.Message):
     else:
         await message.answer("Произошла ошибка. Пожалуйста, начните заново командой /start.")
 
-if name == "main":
+if __name__ == "__main__":
     executor.start_polling(dp, skip_updates=True)
