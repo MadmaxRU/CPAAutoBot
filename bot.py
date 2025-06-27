@@ -24,7 +24,7 @@ class LeadForm(StatesGroup):
 
 @dp.message_handler(commands='start')
 async def cmd_start(message: types.Message):
-    await message.answer("👋 Добро пожаловать!
+    await message.answer("👋 Добро пожаловать!")
 
 Давайте подберем авто. Как вас зовут?")
     await LeadForm.name.set()
