@@ -1,4 +1,4 @@
-mport os
+import os
 from aiogram import Bot, Dispatcher, types, executor
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
 from gsheets import write_to_sheet
