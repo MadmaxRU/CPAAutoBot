@@ -11,4 +11,4 @@ services:
 
 build:
   environment: python
-  pythonVersion: 3.10
+  pythonVersion: 3.11
