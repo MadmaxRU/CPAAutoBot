@@ -1,95 +1,84 @@
-
 import os
-from aiogram import Bot, Dispatcher, types
+from aiogram import Bot, Dispatcher, executor, types
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
-from aiogram.utils import executor
+from aiogram.contrib.fsm_storage.memory import MemoryStorage
+from aiogram.dispatcher import FSMContext
+from aiogram.dispatcher.filters.state import State, StatesGroup
 from dotenv import load_dotenv
+from gsheets import write_to_sheet
 
 load_dotenv()
+TOKEN = os.getenv("BOT_TOKEN")
+bot = Bot(token=TOKEN)
+storage = MemoryStorage()
+dp = Dispatcher(bot, storage=storage)
 
-API_TOKEN = os.getenv("BOT_TOKEN")
-bot = Bot(token=API_TOKEN)
-dp = Dispatcher(bot)
+class LeadForm(StatesGroup):
+    name = State()
+    phone = State()
+    city = State()
+    car_brand = State()
+    payment_method = State()
+    from_abroad = State()
+    agreement = State()
 
-user_data = {}
+@dp.message_handler(commands='start')
+async def cmd_start(message: types.Message):
+    await message.answer("👋 Добро пожаловать!
 
-start_keyboard = ReplyKeyboardMarkup(resize_keyboard=True)
-start_keyboard.add(KeyboardButton("✅ Оставить заявку"))
+Давайте подберем авто. Как вас зовут?")
+    await LeadForm.name.set()
 
-@dp.message_handler(commands=["start"])
-async def send_welcome(message: types.Message):
-    await message.answer("Привет! Нажми кнопку ниже, чтобы оставить заявку:", reply_markup=start_keyboard)
+@dp.message_handler(state=LeadForm.name)
+async def get_name(message: types.Message, state: FSMContext):
+    await state.update_data(name=message.text)
+    await message.answer("📱 Введите ваш номер телефона:")
+    await LeadForm.phone.set()
 
-@dp.message_handler(lambda message: message.text == "✅ Оставить заявку")
-async def ask_car_brand(message: types.Message):
-    user_id = message.from_user.id
-    user_data[user_id] = {}
-    await message.answer("Укажи марку автомобиля:")
+@dp.message_handler(state=LeadForm.phone)
+async def get_phone(message: types.Message, state: FSMContext):
+    await state.update_data(phone=message.text)
+    await message.answer("🏙 В каком городе вы находитесь?")
+    await LeadForm.city.set()
 
-@dp.message_handler(lambda message: "car_brand" not in user_data.get(message.from_user.id, {}))
-async def get_car_brand(message: types.Message):
-    user_id = message.from_user.id
-    if user_id not in user_data:
-        user_data[user_id] = {}
-    user_data[user_id]["car_brand"] = message.text
-    await message.answer("В каком городе вы находитесь?")
+@dp.message_handler(state=LeadForm.city)
+async def get_city(message: types.Message, state: FSMContext):
+    await state.update_data(city=message.text)
+    await message.answer("🚗 Какая марка авто вас интересует?")
+    await LeadForm.car_brand.set()
 
-@dp.message_handler(lambda message: "location" not in user_data.get(message.from_user.id, {}) and "car_brand" in user_data.get(message.from_user.id, {}))
-async def get_location(message: types.Message):
-    user_id = message.from_user.id
-    user_data[user_id]["location"] = message.text
-    await message.answer("Введите ваше имя:")
+@dp.message_handler(state=LeadForm.car_brand)
+async def get_brand(message: types.Message, state: FSMContext):
+    await state.update_data(car_brand=message.text)
+    keyboard = ReplyKeyboardMarkup(resize_keyboard=True)
+    keyboard.add("💳 Кредит", "💼 Лизинг", "💰 Наличные")
+    await message.answer("💸 Какой способ оплаты вас интересует?", reply_markup=keyboard)
+    await LeadForm.payment_method.set()
 
-@dp.message_handler(lambda message: "name" not in user_data.get(message.from_user.id, {}) and "location" in user_data.get(message.from_user.id, {}))
-async def get_name(message: types.Message):
-    user_id = message.from_user.id
-    user_data[user_id]["name"] = message.text
-    await message.answer("Введите номер телефона:")
+@dp.message_handler(state=LeadForm.payment_method)
+async def get_payment(message: types.Message, state: FSMContext):
+    await state.update_data(payment_method=message.text)
+    keyboard = ReplyKeyboardMarkup(resize_keyboard=True)
+    keyboard.add("🇷🇺 Только РФ", "🌍 Хочу авто из-за границы")
+    await message.answer("🚚 Нужно ли привезти авто из-за границы?", reply_markup=keyboard)
+    await LeadForm.from_abroad.set()
 
-@dp.message_handler(lambda message: "phone" not in user_data.get(message.from_user.id, {}) and "name" in user_data.get(message.from_user.id, {}))
-async def get_phone(message: types.Message):
-    user_id = message.from_user.id
-    user_data[user_id]["phone"] = message.text
-    await message.answer("Какой способ оплаты вас интересует? (Лизинг / Кредит / Наличные)")
+@dp.message_handler(state=LeadForm.from_abroad)
+async def get_from_abroad(message: types.Message, state: FSMContext):
+    await state.update_data(from_abroad=message.text)
+    kb = InlineKeyboardMarkup()
+    kb.add(InlineKeyboardButton("✅ Согласен", callback_data="agree"))
+    await message.answer("🛡 Подтвердите согласие на обработку персональных данных", reply_markup=kb)
+    await LeadForm.agreement.set()
 
-@dp.message_handler(lambda message: "payment" not in user_data.get(message.from_user.id, {}) and "phone" in user_data.get(message.from_user.id, {}))
-async def get_payment(message: types.Message):
-    user_id = message.from_user.id
-    user_data[user_id]["payment"] = message.text
-    await message.answer("Какой год выпуска интересует (можно указать диапазон)?")
+@dp.callback_query_handler(lambda c: c.data == "agree", state=LeadForm.agreement)
+async def agreement_done(callback_query: types.CallbackQuery, state: FSMContext):
+    await callback_query.answer("Согласие получено!")
+    data = await state.get_data()
+    write_to_sheet(data)
+    await bot.send_message(callback_query.from_user.id, "✅ Заявка отправлена! Мы скоро свяжемся с вами.")
+    await state.finish()
 
-@dp.message_handler(lambda message: "year" not in user_data.get(message.from_user.id, {}) and "payment" in user_data.get(message.from_user.id, {}))
-async def get_year(message: types.Message):
-    user_id = message.from_user.id
-    user_data[user_id]["year"] = message.text
-    await message.answer("Ваш примерный бюджет (₽)?")
-
-@dp.message_handler(lambda message: "budget" not in user_data.get(message.from_user.id, {}) and "year" in user_data.get(message.from_user.id, {}))
-async def get_budget(message: types.Message):
-    user_id = message.from_user.id
-    user_data[user_id]["budget"] = message.text
-    await message.answer("Рассматриваете авто под заказ из-за границы? (Да / Нет)")
-
-@dp.message_handler(lambda message: "import" not in user_data.get(message.from_user.id, {}) and "budget" in user_data.get(message.from_user.id, {}))
-async def get_import_option(message: types.Message):
-    user_id = message.from_user.id
-    user_data[user_id]["import"] = message.text
-    markup = InlineKeyboardMarkup()
-    markup.add(
-        InlineKeyboardButton("✅ Согласен", callback_data="agree"),
-        InlineKeyboardButton("❌ Не согласен", callback_data="disagree")
-    )
-    await message.answer("Вы соглашаетесь с условиями обработки персональных данных?", reply_markup=markup)
-
-@dp.callback_query_handler(lambda call: call.data in ["agree", "disagree"])
-async def process_agreement(call: types.CallbackQuery):
-    user_id = call.from_user.id
-    user_data[user_id]["agreement"] = call.data
-    if call.data == "agree":
-        await call.message.answer("✅ Заявка принята! Мы с вами свяжемся.")
-    else:
-        await call.message.answer("❌ Без согласия на обработку данных мы не можем продолжить.")
-
-if __name__ == "__main__":
+if __name__ == '__main__':
     from aiogram import executor
     executor.start_polling(dp, skip_updates=True)
