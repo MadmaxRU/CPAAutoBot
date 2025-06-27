@@ -1,96 +1,80 @@
 
 import os
-from aiogram import Bot, Dispatcher, executor, types
-from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram import Bot, Dispatcher, types
+from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
+from aiogram.utils import executor
 from dotenv import load_dotenv
-from gsheets import write_to_sheet
 
 load_dotenv()
-bot = Bot(token=os.getenv("BOT_TOKEN"))
+TOKEN = os.getenv("BOT_TOKEN")
+bot = Bot(token=TOKEN)
 dp = Dispatcher(bot)
 
 user_data = {}
 
 start_kb = ReplyKeyboardMarkup(resize_keyboard=True)
-start_kb.add(KeyboardButton("🚗 Оставить заявку"))
+start_kb.add(KeyboardButton("✅ Оставить заявку"))
 
-consent_kb = InlineKeyboardMarkup()
-consent_kb.add(InlineKeyboardButton("✅ Согласен", callback_data="consent_yes"))
-consent_kb.add(InlineKeyboardButton("❌ Не согласен", callback_data="consent_no"))
-
-@dp.message_handler(commands=['start'])
+@dp.message_handler(commands=["start"])
 async def start(message: types.Message):
-    await message.answer("Добро пожаловать! Нажмите кнопку ниже, чтобы оставить заявку.", reply_markup=start_kb)
+    await message.answer("Привет! Нажми кнопку ниже, чтобы оставить заявку:", reply_markup=start_kb)
 
-@dp.message_handler(lambda message: message.text == "🚗 Оставить заявку")
-async def ask_brand(message: types.Message):
+@dp.message_handler(lambda message: message.text == "✅ Оставить заявку")
+async def ask_car_brand(message: types.Message):
     user_data[message.from_user.id] = {}
-    await message.answer("Укажите марку автомобиля (можно на русском или английском):")
+    await message.answer("🚗 Укажи марку автомобиля:")
 
-@dp.message_handler(lambda message: message.from_user.id in user_data and "brand" not in user_data[message.from_user.id])
-async def ask_model(message: types.Message):
-    user_data[message.from_user.id]["brand"] = message.text
-    await message.answer("Укажите модель автомобиля:")
+@dp.message_handler(lambda message: "car_brand" not in user_data.get(message.from_user.id, {}))
+async def get_car_brand(message: types.Message):
+    user_data[message.from_user.id]["car_brand"] = message.text
+    await message.answer("🏙️ Укажи город:")
 
-@dp.message_handler(lambda message: message.from_user.id in user_data and "model" not in user_data[message.from_user.id])
-async def ask_city(message: types.Message):
-    user_data[message.from_user.id]["model"] = message.text
-    await message.answer("Укажите ваш город:")
-
-@dp.message_handler(lambda message: message.from_user.id in user_data and "city" not in user_data[message.from_user.id])
-async def ask_name(message: types.Message):
+@dp.message_handler(lambda message: "city" not in user_data.get(message.from_user.id, {}))
+async def get_city(message: types.Message):
     user_data[message.from_user.id]["city"] = message.text
-    await message.answer("Укажите ваше имя:")
+    await message.answer("📞 Укажи номер телефона:")
 
-@dp.message_handler(lambda message: message.from_user.id in user_data and "name" not in user_data[message.from_user.id])
-async def ask_phone(message: types.Message):
-    user_data[message.from_user.id]["name"] = message.text
-    await message.answer("Укажите ваш номер телефона:")
-
-@dp.message_handler(lambda message: message.from_user.id in user_data and "phone" not in user_data[message.from_user.id])
-async def ask_payment(message: types.Message):
+@dp.message_handler(lambda message: "phone" not in user_data.get(message.from_user.id, {}))
+async def get_phone(message: types.Message):
     user_data[message.from_user.id]["phone"] = message.text
+    await message.answer("🧑 Укажи своё имя:")
+
+@dp.message_handler(lambda message: "name" not in user_data.get(message.from_user.id, {}))
+async def get_name(message: types.Message):
+    user_data[message.from_user.id]["name"] = message.text
+    await ask_payment_method(message)
+
+async def ask_payment_method(message):
     kb = ReplyKeyboardMarkup(resize_keyboard=True)
-    kb.add(KeyboardButton("Лизинг"), KeyboardButton("Кредит"), KeyboardButton("Наличные"))
-    await message.answer("Какой способ оплаты вас интересует?", reply_markup=kb)
+    kb.add(KeyboardButton("💰 Наличные"), KeyboardButton("🏦 Кредит"), KeyboardButton("🔄 Лизинг"))
+    kb.add(KeyboardButton("🚛 Заказ из-за границы"))
+    await message.answer("💳 Выберите способ приобретения авто:", reply_markup=kb)
 
-@dp.message_handler(lambda message: message.from_user.id in user_data and "payment" not in user_data[message.from_user.id])
-async def ask_year(message: types.Message):
-    user_data[message.from_user.id]["payment"] = message.text
-    await message.answer("Какой год выпуска интересует (можно указать диапазон)?")
+@dp.message_handler(lambda message: "acquisition" not in user_data.get(message.from_user.id, {}))
+async def get_acquisition(message: types.Message):
+    user_data[message.from_user.id]["acquisition"] = message.text
+    await message.answer("📅 Какой год выпуска интересует (можно указать диапазон)?")
 
-@dp.message_handler(lambda message: message.from_user.id in user_data and "year" not in user_data[message.from_user.id])
-async def ask_budget(message: types.Message):
+@dp.message_handler(lambda message: "year" not in user_data.get(message.from_user.id, {}))
+async def get_year(message: types.Message):
     user_data[message.from_user.id]["year"] = message.text
-    await message.answer("Ваш примерный бюджет (₽)?")
+    await message.answer("💸 Ваш примерный бюджет (₽)?")
 
-@dp.message_handler(lambda message: message.from_user.id in user_data and "budget" not in user_data[message.from_user.id])
-async def ask_import(message: types.Message):
+@dp.message_handler(lambda message: "budget" not in user_data.get(message.from_user.id, {}))
+async def get_budget(message: types.Message):
     user_data[message.from_user.id]["budget"] = message.text
     kb = ReplyKeyboardMarkup(resize_keyboard=True)
-    kb.add(KeyboardButton("Да"), KeyboardButton("Нет"))
-    await message.answer("Рассматриваете авто под заказ из-за границы?", reply_markup=kb)
+    kb.add(KeyboardButton("✅ Согласен"), KeyboardButton("❌ Не согласен"))
+    await message.answer("🛡️ Вы соглашаетесь с условиями обработки персональных данных?", reply_markup=kb)
 
-@dp.message_handler(lambda message: message.from_user.id in user_data and "import_interest" not in user_data[message.from_user.id])
-async def ask_consent(message: types.Message):
-    user_data[message.from_user.id]["import_interest"] = message.text
-    await message.answer("Вы соглашаетесь с условиями обработки персональных данных?", reply_markup=consent_kb)
-
-@dp.callback_query_handler(lambda call: call.data in ["consent_yes", "consent_no"])
-async def process_consent(call: types.CallbackQuery):
-    if call.data == "consent_no":
-        await call.message.answer("Заявка отменена.")
-        user_data.pop(call.from_user.id, None)
+@dp.message_handler(lambda message: message.text in ["✅ Согласен", "❌ Не согласен"])
+async def final_step(message: types.Message):
+    user_data[message.from_user.id]["consent"] = message.text
+    if message.text == "✅ Согласен":
+        await message.answer("🎉 Спасибо! Ваша заявка принята. Мы скоро свяжемся с вами.")
     else:
-        uid = call.from_user.id
-        data = user_data.get(uid, {})
-        write_to_sheet([
-            data.get("brand"), data.get("model"), data.get("city"),
-            data.get("name"), data.get("phone"), data.get("payment"),
-            data.get("year"), data.get("budget"), data.get("import_interest")
-        ])
-        await call.message.answer("Спасибо! Ваша заявка принята. Мы свяжемся с вами в ближайшее время.")
-        user_data.pop(uid, None)
+        await message.answer("❗ Без согласия с условиями мы не можем принять заявку.")
 
 if __name__ == "__main__":
-    executor.start_polling(dp, skip_updates=True)
+    from aiogram import executor
+    executor.start_polling(dp)
