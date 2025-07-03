@@ -1,19 +1,14 @@
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 import os
+import json
 
-# Подключение к Google Sheets через credentials.json, загруженный как Secret File
-scope = [
-    "https://spreadsheets.google.com/feeds",
-    "https://www.googleapis.com/auth/drive"
-]
-creds = ServiceAccountCredentials.from_json_keyfile_name(
-    "/etc/secrets/credentials.json", scope
-)
+scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+creds_dict = json.loads(os.getenv("GOOGLE_CREDENTIALS_JSON"))
+creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
 client = gspread.authorize(creds)
 
-# Подключаемся к таблице по ключу из переменной среды
-sheet = client.open_by_key(os.getenv("SHEET_ID")).sheet1  # Первый лист
+sheet = client.open_by_key(os.getenv("SHEET_ID")).sheet1
 
 def write_to_gsheet(data):
     print("🚀 Передача данных в таблицу:", data)
