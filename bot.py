@@ -66,7 +66,7 @@ async def get_agreement(message: types.Message):
     data["city"] = "Москва"
 
     write_to_gsheet(data)
-    await message.answer("🎉 Спасибо! Данные отправлены в таблицу.", reply_markup=types.ReplyKeyboardRemove())
+    await message.answer("🎉 Спасибо! Мы свяжемся с Вами!.", reply_markup=types.ReplyKeyboardRemove())
 
 if __name__ == "__main__":
     executor.start_polling(dp, skip_updates=True)
