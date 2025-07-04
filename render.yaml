@@ -1,14 +1,7 @@
 services:
-  - type: web
+  - type: worker
     name: cpaauto-bot
     env: python
-    buildCommand: pip install -r requirements.txt
-    startCommand: python bot.py
-    autoDeploy: true
-    envVars:
-      - key: BOT_TOKEN
-        sync: false
-
-build:
-  environment: python
-  pythonVersion: 3.11
+    plan: free
+    buildCommand: ""
+    startCommand: "python bot.py"
