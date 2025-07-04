@@ -4,11 +4,12 @@ import os
 import json
 
 scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-creds_dict = json.loads(os.getenv("GOOGLE_CREDS_JSON"))
+
 creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
 client = gspread.authorize(creds)
 sheet = client.open_by_key(os.getenv("SHEET_ID")).sheet1
-
+with open("/etc/secrets/credentials.json") as f:
+    creds_dict = json.load(f)
 def write_to_gsheet(data):
     print("🚀 Передача данных в таблицу:", data)
     sheet.append_row([
