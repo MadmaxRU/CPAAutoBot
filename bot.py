@@ -1,7 +1,6 @@
-import os
-from aiogram import Bot, Dispatcher, types
+from aiogram import Bot, Dispatcher, types, executor
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
-from aiogram.utils import executor
+import os
 from gsheet import write_to_gsheet
 
 API_TOKEN = os.getenv("BOT_TOKEN")
@@ -11,62 +10,57 @@ dp = Dispatcher(bot)
 
 user_data = {}
 
-def make_keyboard(options):
-    keyboard = ReplyKeyboardMarkup(resize_keyboard=True)
-    for opt in options:
-        keyboard.add(KeyboardButton(opt))
-    return keyboard
+start_kb = ReplyKeyboardMarkup(resize_keyboard=True)
+start_kb.add(KeyboardButton("🚗 Купить авто"))
 
-@dp.message_handler(commands=["start"])
-async def start(message: types.Message):
+@dp.message_handler(commands=['start'])
+async def start_cmd(message: types.Message):
+    await message.answer("Привет! Нажми на кнопку, чтобы начать.", reply_markup=start_kb)
+
+@dp.message_handler(lambda message: message.text == "🚗 Купить авто")
+async def ask_name(message: types.Message):
+    await message.answer("Как тебя зовут?")
     user_data[message.from_user.id] = {}
-    await message.answer("👋 Привет! Как тебя зовут?")
 
-@dp.message_handler(lambda msg: msg.from_user.id in user_data and "name" not in user_data[msg.from_user.id])
+@dp.message_handler(lambda message: message.from_user.id in user_data and "name" not in user_data[message.from_user.id])
 async def get_name(message: types.Message):
     user_data[message.from_user.id]["name"] = message.text
-    await message.answer("📱 Введи номер телефона:")
+    kb = ReplyKeyboardMarkup(resize_keyboard=True).add("Москва", "Санкт-Петербург", "Казань")
+    await message.answer("Выбери город:", reply_markup=kb)
 
-@dp.message_handler(lambda msg: msg.from_user.id in user_data and "phone" not in user_data[msg.from_user.id])
-async def get_phone(message: types.Message):
-    user_data[message.from_user.id]["phone"] = message.text
-    keyboard = make_keyboard(["Toyota", "Kia", "Chery", "Haval", "Geely"])
-    await message.answer("🚗 Выбери марку авто:", reply_markup=keyboard)
+@dp.message_handler(lambda message: message.from_user.id in user_data and "city" not in user_data[message.from_user.id])
+async def get_city(message: types.Message):
+    user_data[message.from_user.id]["city"] = message.text
+    kb = ReplyKeyboardMarkup(resize_keyboard=True).add("Toyota", "Lada", "Kia", "Chery")
+    await message.answer("Выбери марку автомобиля:", reply_markup=kb)
 
-@dp.message_handler(lambda msg: msg.from_user.id in user_data and "car_brand" not in user_data[msg.from_user.id])
-async def get_brand(message: types.Message):
+@dp.message_handler(lambda message: message.from_user.id in user_data and "car_brand" not in user_data[message.from_user.id])
+async def get_car(message: types.Message):
     user_data[message.from_user.id]["car_brand"] = message.text
-    keyboard = make_keyboard(["2020", "2021", "2022", "2023", "2024"])
-    await message.answer("📅 Выбери год выпуска:", reply_markup=keyboard)
+    kb = ReplyKeyboardMarkup(resize_keyboard=True).add("Кредит", "Наличные", "Рассрочка")
+    await message.answer("Выбери способ оплаты:", reply_markup=kb)
 
-@dp.message_handler(lambda msg: msg.from_user.id in user_data and "year" not in user_data[msg.from_user.id])
-async def get_year(message: types.Message):
-    user_data[message.from_user.id]["year"] = message.text
-    keyboard = make_keyboard(["Наличные", "Кредит", "Рассрочка"])
-    await message.answer("💳 Способ оплаты:", reply_markup=keyboard)
-
-@dp.message_handler(lambda msg: msg.from_user.id in user_data and "payment_method" not in user_data[msg.from_user.id])
+@dp.message_handler(lambda message: message.from_user.id in user_data and "payment_method" not in user_data[message.from_user.id])
 async def get_payment(message: types.Message):
     user_data[message.from_user.id]["payment_method"] = message.text
-    keyboard = make_keyboard(["Да", "Нет"])
-    await message.answer("🌍 Вы находитесь за границей?", reply_markup=keyboard)
+    kb = ReplyKeyboardMarkup(resize_keyboard=True).add("Да", "Нет")
+    await message.answer("Ты из другого региона?", reply_markup=kb)
 
-@dp.message_handler(lambda msg: msg.from_user.id in user_data and "from_abroad" not in user_data[msg.from_user.id])
-async def get_location(message: types.Message):
+@dp.message_handler(lambda message: message.from_user.id in user_data and "from_abroad" not in user_data[message.from_user.id])
+async def get_from_abroad(message: types.Message):
     user_data[message.from_user.id]["from_abroad"] = message.text
-    keyboard = make_keyboard(["Согласен", "Не согласен"])
-    await message.answer("✅ Согласны с обработкой данных?", reply_markup=keyboard)
+    kb = ReplyKeyboardMarkup(resize_keyboard=True).add("Да", "Нет")
+    await message.answer("Согласен с политикой обработки данных?", reply_markup=kb)
 
-@dp.message_handler(lambda msg: msg.from_user.id in user_data and "agreement" not in user_data[msg.from_user.id])
+@dp.message_handler(lambda message: message.from_user.id in user_data and "agreement" not in user_data[message.from_user.id])
 async def get_agreement(message: types.Message):
     user_data[message.from_user.id]["agreement"] = message.text
+    user_data[message.from_user.id]["phone"] = f"+{message.from_user.id}"
+    user_data[message.from_user.id]["lead_type"] = "bot"
 
-    data = user_data.pop(message.from_user.id)
-    data["lead_type"] = "bot_lead"
-    data["city"] = "Москва"
-
-    write_to_gsheet(data)
-    await message.answer("🎉 Спасибо! Мы свяжемся с Вами!.", reply_markup=types.ReplyKeyboardRemove())
+    write_to_gsheet(user_data[message.from_user.id])
+    await message.answer("Спасибо! Данные отправлены ✅")
+    del user_data[message.from_user.id]
 
 if __name__ == "__main__":
     executor.start_polling(dp, skip_updates=True)
