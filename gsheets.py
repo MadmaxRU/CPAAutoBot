@@ -1,21 +1,12 @@
 import gspread
-import os
-import json
-from google.oauth2.service_account import Credentials
+from oauth2client.service_account import ServiceAccountCredentials
 
 def write_to_gsheet(data):
-    creds_dict = json.loads(os.getenv("GOOGLE_CREDS_JSON"))
-    creds = Credentials.from_service_account_info(creds_dict)
-    gc = gspread.authorize(creds)
-    sheet = gc.open("CPAauto_leads").sheet1
-    row = [
-        data.get("lead_type", ""),
-        data.get("name", ""),
-        data.get("city", ""),
-        data.get("car_brand", ""),
-        data.get("payment_method", ""),
-        data.get("from_abroad", ""),
-        data.get("agreement", ""),
-        data.get("phone", "")
-    ]
-    sheet.append_row(row)
+    scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+    creds = ServiceAccountCredentials.from_json_keyfile_name("credentials.json", scope)
+    client = gspread.authorize(creds)
+    sheet = client.open("CPA Leads").sheet1
+    sheet.append_row([
+        data["lead_type"], data["name"], data["city"], data["car_brand"],
+        data["payment_method"], data["phone"], data["from_abroad"], data["agreement"]
+    ])
