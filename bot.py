@@ -74,7 +74,7 @@ async def handle_message(message: types.Message):
     elif state["step"] == "email":
         state["email"] = text
         state["step"] = "budget"
-        await message.answer("Укажите бюджет:
+        await message.answer("Укажите бюджет:") 
 1–2 млн
 2–4 млн
 4–6 млн
