@@ -1,116 +1,112 @@
 
-import asyncio
 import logging
 import os
-import json
 
-from aiogram import Bot, Dispatcher, F
-from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton
+from aiogram import Bot, Dispatcher, Router, types
 from aiogram.enums import ParseMode
-from aiogram.fsm.context import FSMContext
-from aiogram.fsm.state import StatesGroup, State
-from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.utils.markdown import hbold
+from aiogram.client.default import DefaultBotProperties
+from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
+from aiogram.filters import CommandStart
+from aiogram.utils.keyboard import ReplyKeyboardBuilder
 from dotenv import load_dotenv
 
-from gsheet import write_to_gsheet
+from gsheets import write_to_gsheet
 
 load_dotenv()
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-bot = Bot(token=BOT_TOKEN, default=Bot.default_parse_mode.parse_mode = ParseMode.HTML)
-dp = Dispatcher(storage=MemoryStorage())
+bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
+dp = Dispatcher()
+router = Router()
+dp.include_router(router)
 
-logging.basicConfig(level=logging.INFO)
+user_data = {}
 
-class Form(StatesGroup):
-    method = State()
-    brand = State()
-    contacts = State()
-    inn = State()
-    entity = State()
-    email = State()
-    city = State()
-    budget = State()
-    comment = State()
+start_kb = ReplyKeyboardMarkup(
+    keyboard=[[
+        KeyboardButton(text="Купить в кредит"),
+        KeyboardButton(text="Купить за наличные"),
+        KeyboardButton(text="Купить в лизинг"),
+        KeyboardButton(text="Купить в трейд-ин")
+    ]],
+    resize_keyboard=True
+)
 
-start_buttons = ["Купить в кредит", "Купить за наличные", "Купить в лизинг", "Купить по трейд-ин"]
-kb = ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text=b)] for b in start_buttons], resize_keyboard=True)
 
-@dp.message(F.text.in_(start_buttons))
-async def start_form(message: Message, state: FSMContext):
-    await state.clear()
-    await state.update_data(method=message.text)
-    if message.text == "Купить в лизинг":
-        await message.answer("Введите форму юрлица (ИП или ООО):")
-        await state.set_state(Form.entity)
-    else:
-        await message.answer("Введите марку автомобиля:")
-        await state.set_state(Form.brand)
+@router.message(CommandStart())
+async def cmd_start(message: types.Message):
+    await message.answer("Выберите способ покупки автомобиля:", reply_markup=start_kb)
 
-@dp.message(Form.entity)
-async def get_entity(message: Message, state: FSMContext):
-    await state.update_data(entity=message.text)
-    await message.answer("Введите ИНН:")
-    await state.set_state(Form.inn)
 
-@dp.message(Form.inn)
-async def get_inn(message: Message, state: FSMContext):
-    await state.update_data(inn=message.text)
-    await message.answer("Введите email:")
-    await state.set_state(Form.email)
+@router.message()
+async def handle_message(message: types.Message):
+    user_id = message.from_user.id
+    text = message.text
 
-@dp.message(Form.email)
-async def get_email(message: Message, state: FSMContext):
-    await state.update_data(email=message.text)
-    await message.answer("Введите город:")
-    await state.set_state(Form.city)
+    if user_id not in user_data:
+        user_data[user_id] = {"step": "purchase_type"}
 
-@dp.message(Form.city)
-async def get_city(message: Message, state: FSMContext):
-    await state.update_data(city=message.text)
-    await message.answer("Выберите бюджет:", reply_markup=ReplyKeyboardMarkup(
-        keyboard=[[KeyboardButton(text=b)] for b in ["1–2 млн", "2–4 млн", "4–6 млн", "6–10 млн", ">10 млн"]],
-        resize_keyboard=True
-    ))
-    await state.set_state(Form.budget)
+    state = user_data[user_id]
 
-@dp.message(Form.budget)
-async def get_budget(message: Message, state: FSMContext):
-    await state.update_data(budget=message.text)
-    await message.answer("Добавьте комментарий или удобное время для звонка:")
-    await state.set_state(Form.comment)
+    if state["step"] == "purchase_type":
+        state["purchase_type"] = text
+        state["step"] = "brand"
+        await message.answer("Введите марку автомобиля:", reply_markup=ReplyKeyboardRemove())
+    elif state["step"] == "brand":
+        state["brand"] = text
+        if state["purchase_type"] == "Купить в лизинг":
+            state["step"] = "entity_type"
+            await message.answer("Введите форму юрлица (ИП или ООО):")
+        else:
+            state["step"] = "contact"
+            await message.answer("Введите ваши контактные данные (номер телефона или email):", reply_markup=ReplyKeyboardMarkup(
+                keyboard=[[KeyboardButton(text="📱 Отправить номер телефона", request_contact=True)]],
+                resize_keyboard=True
+            ))
+    elif state["step"] == "entity_type":
+        state["entity_type"] = text
+        state["step"] = "inn"
+        await message.answer("Введите ИНН:")
+    elif state["step"] == "inn":
+        state["inn"] = text
+        state["step"] = "email"
+        await message.answer("Введите email:")
+    elif state["step"] == "email":
+        state["email"] = text
+        state["step"] = "budget"
+        await message.answer("Укажите бюджет:
+1–2 млн
+2–4 млн
+4–6 млн
+6–10 млн
+>10 млн")
+    elif state["step"] == "contact":
+        state["contact"] = text
+        state["step"] = "budget"
+        await message.answer("Укажите бюджет:
+1–2 млн
+2–4 млн
+4–6 млн
+6–10 млн
+>10 млн")
+    elif state["step"] == "budget":
+        state["budget"] = text
+        state["step"] = "city"
+        await message.answer("Укажите город:")
+    elif state["step"] == "city":
+        state["city"] = text
+        state["step"] = "comment"
+        await message.answer("Можете добавить комментарий или удобное время для звонка:")
+    elif state["step"] == "comment":
+        state["comment"] = text
 
-@dp.message(Form.comment)
-async def get_comment(message: Message, state: FSMContext):
-    await state.update_data(comment=message.text)
-    data = await state.get_data()
-    await write_to_gsheet(data)
-    await message.answer("Спасибо! Ваша заявка принята.")
-    await state.clear()
+        data = user_data.pop(user_id)
+        write_to_gsheet(data)
 
-@dp.message(Form.brand)
-async def get_brand(message: Message, state: FSMContext):
-    await state.update_data(brand=message.text)
-    await message.answer("Введите ваши контактные данные или нажмите кнопку ниже:",
-                         reply_markup=ReplyKeyboardMarkup(
-                             keyboard=[[KeyboardButton(text="📱 Отправить номер", request_contact=True)]],
-                             resize_keyboard=True))
-    await state.set_state(Form.contacts)
+        await message.answer("Спасибо! Мы свяжемся с вами в ближайшее время.", reply_markup=start_kb)
 
-@dp.message(Form.contacts)
-async def get_contacts(message: Message, state: FSMContext):
-    contact_text = message.contact.phone_number if message.contact else message.text
-    await state.update_data(contacts=contact_text)
-    await message.answer("Введите город:")
-    await state.set_state(Form.city)
-
-@dp.message()
-async def fallback(message: Message):
-    await message.answer("Пожалуйста, выберите способ покупки:", reply_markup=kb)
-
-async def main():
-    await dp.start_polling(bot)
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    import asyncio
+    logging.basicConfig(level=logging.INFO)
+    asyncio.run(dp.start_polling(bot))
