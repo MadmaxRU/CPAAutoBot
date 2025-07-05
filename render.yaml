@@ -1,7 +1,6 @@
 services:
   - type: worker
-    name: cpaauto-bot
+    name: cpa-auto-bot
     env: python
-    plan: free
-    buildCommand: ""
+    buildCommand: "pip install -r requirements.txt"
     startCommand: "python bot.py"
