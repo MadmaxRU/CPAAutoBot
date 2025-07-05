@@ -83,12 +83,14 @@ async def handle_message(message: types.Message):
     elif state["step"] == "contact":
         state["contact"] = text
         state["step"] = "budget"
-        await message.answer("Укажите бюджет:
-1–2 млн
-2–4 млн
-4–6 млн
-6–10 млн
->10 млн")
+        await message.answer(
+"Укажите бюджет:\n"
+"1–2 млн\n"
+"2–4 млн\n"
+"4–6 млн\n"
+"6–10 млн\n"
+">10 млн"
+)
     elif state["step"] == "budget":
         state["budget"] = text
         state["step"] = "city"
