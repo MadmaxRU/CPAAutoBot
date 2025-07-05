@@ -1,84 +1,45 @@
 
 import os
 import asyncio
-from aiogram import Bot, Dispatcher, types
-from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
-from aiogram.enums import ParseMode
-from aiogram.fsm.context import FSMContext
-from aiogram.fsm.state import State, StatesGroup
-from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.filters import CommandStart
-from gsheet import write_to_gsheet
+from aiogram import Bot, Dispatcher
+from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton
+from aiogram.filters import Command
+from aiogram import Router
+from gsheets import write_to_gsheet
 
 API_TOKEN = os.getenv("BOT_TOKEN")
 
-bot = Bot(token=API_TOKEN, parse_mode=ParseMode.HTML)
-dp = Dispatcher(storage=MemoryStorage())
+bot = Bot(token=API_TOKEN)
+dp = Dispatcher()
+router = Router()
 
-class Form(StatesGroup):
-    name = State()
-    city = State()
-    brand = State()
-    payment = State()
-    region = State()
-    agreement = State()
+@router.message(Command("start"))
+async def cmd_start(message: Message):
+    keyboard = ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="🚗 Купить авто")],
+            [KeyboardButton(text="📞 Связаться с менеджером")]
+        ],
+        resize_keyboard=True
+    )
+    await message.answer("Привет! Что тебя интересует?", reply_markup=keyboard)
 
-@dp.message(CommandStart())
-async def cmd_start(message: types.Message, state: FSMContext):
-    markup = ReplyKeyboardMarkup(resize_keyboard=True)
-    markup.add(KeyboardButton("🚗 Купить авто"))
-    await message.answer("Привет! Нажми на кнопку, чтобы начать.", reply_markup=markup)
+@router.message()
+async def handle_message(message: Message):
+    user_id = message.from_user.id
+    text = message.text
 
-@dp.message(lambda message: message.text == "🚗 Купить авто")
-async def start_form(message: types.Message, state: FSMContext):
-    await message.answer("Как тебя зовут?", reply_markup=ReplyKeyboardRemove())
-    await state.set_state(Form.name)
-
-@dp.message(Form.name)
-async def process_name(message: types.Message, state: FSMContext):
-    await state.update_data(name=message.text)
-    await message.answer("Выбери город:")
-    await state.set_state(Form.city)
-
-@dp.message(Form.city)
-async def process_city(message: types.Message, state: FSMContext):
-    await state.update_data(city=message.text)
-    await message.answer("Введи марку автомобиля:")
-    await state.set_state(Form.brand)
-
-@dp.message(Form.brand)
-async def process_brand(message: types.Message, state: FSMContext):
-    await state.update_data(brand=message.text)
-    markup = ReplyKeyboardMarkup(resize_keyboard=True)
-    markup.add(KeyboardButton("Наличные"), KeyboardButton("Кредит"))
-    await message.answer("Выбери способ оплаты:", reply_markup=markup)
-    await state.set_state(Form.payment)
-
-@dp.message(Form.payment)
-async def process_payment(message: types.Message, state: FSMContext):
-    await state.update_data(payment=message.text)
-    markup = ReplyKeyboardMarkup(resize_keyboard=True)
-    markup.add(KeyboardButton("Да"), KeyboardButton("Нет"))
-    await message.answer("Ты из другого региона?", reply_markup=markup)
-    await state.set_state(Form.region)
-
-@dp.message(Form.region)
-async def process_region(message: types.Message, state: FSMContext):
-    await state.update_data(region=message.text)
-    markup = ReplyKeyboardMarkup(resize_keyboard=True)
-    markup.add(KeyboardButton("Да"))
-    await message.answer("Согласен с политикой обработки данных?", reply_markup=markup)
-    await state.set_state(Form.agreement)
-
-@dp.message(Form.agreement)
-async def process_agreement(message: types.Message, state: FSMContext):
-    await state.update_data(agreement=message.text)
-    data = await state.get_data()
-    write_to_gsheet(data)
-    await message.answer("Спасибо! Данные переданы. 🚗", reply_markup=ReplyKeyboardRemove())
-    await state.clear()
+    # Пример простой логики
+    if text == "🚗 Купить авто":
+        await message.answer("Пожалуйста, введите марку автомобиля:")
+    elif text == "📞 Связаться с менеджером":
+        await message.answer("Менеджер скоро с вами свяжется.")
+    else:
+        await message.answer("Спасибо! Ваши данные записаны.")
+        write_to_gsheet([user_id, text])
 
 async def main():
+    dp.include_router(router)
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
