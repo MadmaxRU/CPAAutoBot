@@ -11,7 +11,7 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import ReplyKeyboardMarkup
 from aiogram.utils.keyboard import ReplyKeyboardBuilder
 from dotenv import load_dotenv
-from gsheet import write_to_gsheet
+from gsheets import write_to_gsheet
 from datetime import datetime
 
 load_dotenv()
