@@ -1,7 +1,7 @@
 from aiogram import Bot, Dispatcher, types, executor
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
 import os
-from gsheet import write_to_gsheet
+from gsheets import write_to_gsheet
 
 API_TOKEN = os.getenv("BOT_TOKEN")
 
