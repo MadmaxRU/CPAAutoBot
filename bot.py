@@ -1,6 +1,5 @@
 import os
-from aiogram import Bot, Dispatcher, types
-import asyncio
+from aiogram import Bot, Dispatcher, types, import asyncio
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
 from gsheets import write_to_gsheet
 
