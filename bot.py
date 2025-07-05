@@ -85,10 +85,10 @@ async def handle_message(message: types.Message):
         state["step"] = "budget"
         await message.answer(
 "Укажите бюджет:\n"
-"1–2 млн\n"
-"2–4 млн\n"
-"4–6 млн\n"
-"6–10 млн\n"
+"1-2 млн\n"
+"2-4 млн\n"
+"4-6 млн\n"
+"6-10 млн\n"
 ">10 млн"
 )
     elif state["step"] == "budget":
