@@ -1,5 +1,6 @@
 import os
-from aiogram import Bot, Dispatcher, types, executor
+from aiogram import Bot, Dispatcher, types, 
+import asyncio
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
 from gsheets import write_to_gsheet
 
@@ -70,5 +71,8 @@ async def finish(message: types.Message):
     await message.answer("Спасибо! Данные отправлены.")
     user_data.pop(message.from_user.id)
 
-if __name__ == "__main__":
-    executor.start_polling(dp, skip_updates=True)
+async def main():
+    await dp.start_polling()
+
+if name == "main":
+    asyncio.run(main())
