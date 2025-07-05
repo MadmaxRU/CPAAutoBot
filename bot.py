@@ -13,7 +13,13 @@ load_dotenv()
 
 logging.basicConfig(level=logging.INFO)
 
-bot = Bot(token=os.getenv("BOT_TOKEN"), parse_mode=ParseMode.HTML)
+from aiogram.enums import ParseMode
+from aiogram.client.default import DefaultBotProperties
+
+bot = Bot(
+    token=os.getenv("BOT_TOKEN"),
+    default=DefaultBotProperties(parse_mode=ParseMode.HTML)
+)
 dp = Dispatcher(storage=MemoryStorage())
 
 user_data = {}
