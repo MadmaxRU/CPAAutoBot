@@ -1,114 +1,69 @@
 
+from aiogram import Bot, Dispatcher, types
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.utils import executor
+from aiogram.contrib.middlewares.logging import LoggingMiddleware
+
 import logging
 import os
 
-from aiogram import Bot, Dispatcher, Router, types
-from aiogram.enums import ParseMode
-from aiogram.client.default import DefaultBotProperties
-from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
-from aiogram.filters import CommandStart
-from aiogram.utils.keyboard import ReplyKeyboardBuilder
-from dotenv import load_dotenv
+API_TOKEN = os.getenv("BOT_TOKEN")  # Убедись, что токен в переменной окружения
 
-from gsheets import write_to_gsheet
+logging.basicConfig(level=logging.INFO)
 
-load_dotenv()
+bot = Bot(token=API_TOKEN)
+dp = Dispatcher(bot)
+dp.middleware.setup(LoggingMiddleware())
 
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
-dp = Dispatcher()
-router = Router()
-dp.include_router(router)
+# Простейшее хранилище состояний
+user_state = {}
 
-user_data = {}
+@dp.message_handler(commands=['start'])
+async def start_handler(message: types.Message):
+    user_state[message.from_user.id] = {"step": "contact"}
+    await message.answer("Введите ваш контакт (имя, телефон или email):")
 
-start_kb = ReplyKeyboardMarkup(
-    keyboard=[[
-        KeyboardButton(text="Купить в кредит"),
-        KeyboardButton(text="Купить за наличные"),
-        KeyboardButton(text="Купить в лизинг"),
-        KeyboardButton(text="Купить в трейд-ин")
-    ]],
-    resize_keyboard=True
-)
-
-
-@router.message(CommandStart())
-async def cmd_start(message: types.Message):
-    await message.answer("Выберите способ покупки автомобиля:", reply_markup=start_kb)
-
-
-@router.message()
+@dp.message_handler()
 async def handle_message(message: types.Message):
     user_id = message.from_user.id
     text = message.text
 
-    if user_id not in user_data:
-        user_data[user_id] = {"step": "purchase_type"}
+    state = user_state.get(user_id, {"step": "contact"})
 
-    state = user_data[user_id]
-
-    if state["step"] == "purchase_type":
-        state["purchase_type"] = text
-        state["step"] = "brand"
-        await message.answer("Введите марку автомобиля:", reply_markup=ReplyKeyboardRemove())
-    elif state["step"] == "brand":
-        state["brand"] = text
-        if state["purchase_type"] == "Купить в лизинг":
-            state["step"] = "entity_type"
-            await message.answer("Введите форму юрлица (ИП или ООО):")
-        else:
-            state["step"] = "contact"
-            await message.answer("Введите ваши контактные данные (номер телефона или email):", reply_markup=ReplyKeyboardMarkup(
-                keyboard=[[KeyboardButton(text="📱 Отправить номер телефона", request_contact=True)]],
-                resize_keyboard=True
-            ))
-    elif state["step"] == "entity_type":
-        state["entity_type"] = text
-        state["step"] = "inn"
-        await message.answer("Введите ИНН:")
-    elif state["step"] == "inn":
-        state["inn"] = text
-        state["step"] = "email"
-        await message.answer("Введите email:")
-    elif state["step"] == "email":
-        state["email"] = text
-        state["step"] = "budget"
-        await message.answer("Укажите бюджет:") 
-1–2 млн
-2–4 млн
-4–6 млн
-6–10 млн
->10 млн")
-    elif state["step"] == "contact":
+    if state["step"] == "contact":
         state["contact"] = text
         state["step"] = "budget"
-        await message.answer(
-"Укажите бюджет:\n"
-"1-2 млн\n"
-"2-4 млн\n"
-"4-6 млн\n"
-"6-10 млн\n"
-">10 млн"
-)
-    elif state["step"] == "budget":
-        state["budget"] = text
-        state["step"] = "city"
-        await message.answer("Укажите город:")
+
+        # Кнопки с бюджетами
+        budget_keyboard = InlineKeyboardMarkup(row_width=2)
+        budget_keyboard.add(
+            InlineKeyboardButton("1-2 млн", callback_data="budget_1_2"),
+            InlineKeyboardButton("2-4 млн", callback_data="budget_2_4"),
+            InlineKeyboardButton("4-6 млн", callback_data="budget_4_6"),
+            InlineKeyboardButton("6-10 млн", callback_data="budget_6_10"),
+            InlineKeyboardButton(">10 млн", callback_data="budget_10_plus")
+        )
+
+        await message.answer("Укажите бюджет:", reply_markup=budget_keyboard)
+        user_state[user_id] = state
+
     elif state["step"] == "city":
         state["city"] = text
-        state["step"] = "comment"
-        await message.answer("Можете добавить комментарий или удобное время для звонка:")
-    elif state["step"] == "comment":
-        state["comment"] = text
-
-        data = user_data.pop(user_id)
-        write_to_gsheet(data)
-
-        await message.answer("Спасибо! Мы свяжемся с вами в ближайшее время.", reply_markup=start_kb)
+        await message.answer("Спасибо! Мы свяжемся с вами после подбора авто.")
+        user_state[user_id] = {"step": "contact"}  # сброс состояния
 
 
-if __name__ == "__main__":
-    import asyncio
-    logging.basicConfig(level=logging.INFO)
-    asyncio.run(dp.start_polling(bot))
+@dp.callback_query_handler(lambda c: c.data.startswith("budget_"))
+async def handle_budget(callback_query: types.CallbackQuery):
+    user_id = callback_query.from_user.id
+    budget = callback_query.data.replace("budget_", "").replace("_", "-") + " млн"
+
+    state = user_state.get(user_id, {})
+    state["budget"] = budget
+    state["step"] = "city"
+    user_state[user_id] = state
+
+    await bot.send_message(user_id, "Укажите город:")
+
+if __name__ == '__main__':
+    executor.start_polling(dp, skip_updates=True)
