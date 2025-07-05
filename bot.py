@@ -1,110 +1,131 @@
 
+import asyncio
 import logging
 import os
-import json
-
-from aiogram import Bot, Dispatcher, types
+from aiogram import Bot, Dispatcher, F
 from aiogram.enums import ParseMode
+from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
+from aiogram.fsm.state import StatesGroup, State
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.types import Message
-from aiogram.filters import Command
-from aiogram import Router
-
+from aiogram.types import ReplyKeyboardMarkup
+from aiogram.utils.keyboard import ReplyKeyboardBuilder
 from dotenv import load_dotenv
-from gsheets import write_to_gsheet
+from gsheet import write_to_gsheet
+from datetime import datetime
 
 load_dotenv()
 
-# Настройка логов
-logging.basicConfig(level=logging.INFO)
-
-# Инициализация бота
-bot = Bot(token=os.getenv("BOT_TOKEN"))
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+bot = Bot(token=BOT_TOKEN, parse_mode=ParseMode.HTML)
 dp = Dispatcher(storage=MemoryStorage())
-router = Router()
 
-# Состояния
-class Form:
-    waiting_for_payment_method = "waiting_for_payment_method"
-    waiting_for_brand = "waiting_for_brand"
-    waiting_for_legal_info = "waiting_for_legal_info"
-    waiting_for_contact_info = "waiting_for_contact_info"
-    waiting_for_comment = "waiting_for_comment"
+class LeadForm(StatesGroup):
+    method = State()
+    car = State()
+    budget = State()
+    city = State()
+    company_type = State()
+    inn = State()
+    email = State()
+    contact = State()
+    comment = State()
 
-user_data = {}
-
-start_buttons = ["🚗 Купить авто", "📞 Связаться с менеджером"]
-start_kb = types.ReplyKeyboardMarkup(resize_keyboard=True, keyboard=[
-    [types.KeyboardButton(text=btn)] for btn in start_buttons
-])
-
-budget_buttons = ["1–2 млн", "2–4 млн", "4–6 млн", "6–10 млн", ">10 млн"]
-budget_kb = types.ReplyKeyboardMarkup(resize_keyboard=True, keyboard=[
-    [types.KeyboardButton(text=btn)] for btn in budget_buttons
-])
-
-payment_buttons = ["Купить в кредит", "Купить за наличные", "Купить в лизинг"]
-payment_kb = types.ReplyKeyboardMarkup(resize_keyboard=True, keyboard=[
-    [types.KeyboardButton(text=btn)] for btn in payment_buttons
-])
-
-@router.message(Command("start"))
-@router.message(lambda message: message.text == "🚗 Купить авто")
+@dp.message()
 async def start_handler(message: Message, state: FSMContext):
-    await message.answer("Как планируете оплачивать автомобиль?", reply_markup=payment_kb)
-    await state.set_state(Form.waiting_for_payment_method)
-    user_data[message.from_user.id] = {}
+    if message.text.lower() in ["/start", "начать", "привет"]:
+        kb = ReplyKeyboardMarkup(
+            keyboard=[[KeyboardButton(text="Купить в кредит")],
+                      [KeyboardButton(text="Купить за наличные")],
+                      [KeyboardButton(text="Купить в лизинг")],
+                      [KeyboardButton(text="Купить по трейд-ин")]],
+            resize_keyboard=True
+        )
+        await message.answer("Привет! Выберите способ покупки:", reply_markup=kb)
+        await state.set_state(LeadForm.method)
+        return
 
-@router.message(lambda msg: msg.text in payment_buttons)
-async def payment_method_handler(message: Message, state: FSMContext):
-    user_data[message.from_user.id]["Оплата"] = message.text
-    await message.answer("Введите марку автомобиля:")
-    await state.set_state(Form.waiting_for_brand)
+    current_state = await state.get_state()
 
-@router.message(lambda msg: msg.text not in payment_buttons and msg.text not in start_buttons)
-async def brand_handler(message: Message, state: FSMContext):
-    user_data[message.from_user.id]["Марка"] = message.text
-    if user_data[message.from_user.id]["Оплата"] == "Купить в лизинг":
+    if current_state == LeadForm.method:
+        await state.update_data(method=message.text)
+        await message.answer("Введите марку автомобиля:", reply_markup=ReplyKeyboardRemove())
+        await state.set_state(LeadForm.car)
+
+    elif current_state == LeadForm.car:
+        await state.update_data(car=message.text)
+        await message.answer("Укажите ваш бюджет (1–2 млн, 2–4 млн, 4–6 млн, 6–10 млн, >10 млн):")
+        await state.set_state(LeadForm.budget)
+
+    elif current_state == LeadForm.budget:
+        await state.update_data(budget=message.text)
+        await message.answer("Укажите ваш город:")
+        await state.set_state(LeadForm.city)
+
+    elif current_state == LeadForm.city:
+        await state.update_data(city=message.text)
+        user_data = await state.get_data()
+        if user_data["method"].lower().endswith("лизинг"):
+            await message.answer("Вы ИП или ООО?")
+            await state.set_state(LeadForm.company_type)
+        else:
+            kb = ReplyKeyboardMarkup(
+                keyboard=[[KeyboardButton(text="Отправить номер телефона 📱", request_contact=True)]],
+                resize_keyboard=True
+            )
+            await message.answer("Введите ваши контактные данные или нажмите кнопку ниже:", reply_markup=kb)
+            await state.set_state(LeadForm.contact)
+
+    elif current_state == LeadForm.company_type:
+        await state.update_data(company_type=message.text)
         await message.answer("Введите ИНН:")
-        await state.set_state(Form.waiting_for_legal_info)
-    else:
-        await message.answer("Введите ваши контактные данные:")
-        await state.set_state(Form.waiting_for_contact_info)
+        await state.set_state(LeadForm.inn)
 
-@router.message(lambda msg: msg.text and "ИНН" not in user_data.get(msg.from_user.id, {}))
-async def inn_handler(message: Message, state: FSMContext):
-    user_data[message.from_user.id]["ИНН"] = message.text
-    await message.answer("Выберите бюджет:", reply_markup=budget_kb)
-    await state.set_state(Form.waiting_for_contact_info)
+    elif current_state == LeadForm.inn:
+        await state.update_data(inn=message.text)
+        await message.answer("Введите ваш email:")
+        await state.set_state(LeadForm.email)
 
-@router.message(lambda msg: msg.text in budget_buttons)
-async def budget_handler(message: Message, state: FSMContext):
-    user_data[message.from_user.id]["Бюджет"] = message.text
-    await message.answer("Введите город:")
-    await state.set_state(Form.waiting_for_comment)
+    elif current_state == LeadForm.email:
+        await state.update_data(email=message.text)
+        kb = ReplyKeyboardMarkup(
+            keyboard=[[KeyboardButton(text="Отправить номер телефона 📱", request_contact=True)]],
+            resize_keyboard=True
+        )
+        await message.answer("Введите ваши контактные данные или нажмите кнопку ниже:", reply_markup=kb)
+        await state.set_state(LeadForm.contact)
 
-@router.message(lambda msg: msg.text and "Город" not in user_data.get(msg.from_user.id, {}))
-async def city_handler(message: Message, state: FSMContext):
-    user_data[message.from_user.id]["Город"] = message.text
-    await message.answer("Добавьте комментарий или удобное время для звонка (или отправьте - ):")
-    await state.set_state(Form.waiting_for_comment)
+    elif current_state == LeadForm.contact:
+        contact = message.text
+        if message.contact:
+            contact = message.contact.phone_number
+        await state.update_data(contact=contact)
+        await message.answer("Можете добавить комментарий или удобное время для звонка (по желанию):")
+        await state.set_state(LeadForm.comment)
 
-@router.message()
-async def comment_handler(message: Message, state: FSMContext):
-    user_data[message.from_user.id]["Комментарий"] = message.text
-    await write_to_gsheet(user_data[message.from_user.id])
-    await message.answer("Спасибо! Ваши данные записаны.", reply_markup=start_kb)
-    await state.clear()
+    elif current_state == LeadForm.comment:
+        await state.update_data(comment=message.text)
+        data = await state.get_data()
+        now = datetime.now().strftime("%Y-%m-%d %H:%M")
+        values = [
+            now,
+            data.get("method", ""),
+            data.get("car", ""),
+            data.get("budget", ""),
+            data.get("city", ""),
+            data.get("company_type", ""),
+            data.get("inn", ""),
+            data.get("email", ""),
+            data.get("contact", ""),
+            data.get("comment", "")
+        ]
+        await write_to_gsheet(values)
+        await message.answer("Спасибо! Ваша заявка принята ✅", reply_markup=ReplyKeyboardRemove())
+        await state.clear()
 
-@router.message(lambda msg: msg.text == "📞 Связаться с менеджером")
-async def manager_contact(message: Message):
-    await message.answer("Менеджер скоро с вами свяжется.", reply_markup=start_kb)
-
-dp.include_router(router)
+async def main():
+    logging.basicConfig(level=logging.INFO)
+    await dp.start_polling(bot)
 
 if __name__ == "__main__":
-    import asyncio
-    async def main():
-        await dp.start_polling(bot)
     asyncio.run(main())
