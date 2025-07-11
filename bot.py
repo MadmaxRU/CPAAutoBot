@@ -100,18 +100,12 @@ def finish_submission(chat_id):
     send_to_google_sheet(data)
 
     # Отправка финального сообщения
-    msg = (
-        f"✅ Спасибо, {data.get('name', '')}! Ваша заявка принята.
-"
-        f"📌 Способ покупки: {data.get('method')}
-"
-        f"🚗 Марка авто: {data.get('brand')}
-"
-        f"💰 Бюджет: {data.get('budget')}
-"
-        f"📍 Город: {data.get('city')}
-"
-        f"📞 Телефон: {data.get('phone')}"
+    msg = f"""✅ Спасибо, {data.get('name', '')}! Ваша заявка принята.
+📌 Способ покупки: {data.get('method')}
+🚗 Марка авто: {data.get('brand')}
+💰 Бюджет: {data.get('budget')}
+📍 Город: {data.get('city')}
+📞 Телефон: {data.get('phone')}"""
     )
     bot.send_message(chat_id, msg, reply_markup=types.ReplyKeyboardRemove())
 
