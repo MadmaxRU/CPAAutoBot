@@ -57,11 +57,13 @@ async def start_handler(message: Message, state: FSMContext):
 @dp.message(Form.name)
 async def name_handler(message: Message, state: FSMContext):
     await state.update_data(name=message.text)
-    await message.answer("Выберите способ покупки:
-1. Наличные
-2. Кредит
-3. Лизинг
-4. Трейд-ин")
+    await message.answer(
+    "Выберите способ покупки:\n"
+    "1. Наличные\n"
+    "2. Кредит\n"
+    "3. Лизинг\n"
+    "4. Трейд-ин"
+)
     await state.set_state(Form.payment_method)
 
 @dp.message(Form.payment_method)
