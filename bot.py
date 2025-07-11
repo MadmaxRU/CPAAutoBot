@@ -1,83 +1,99 @@
-import asyncio
+import logging
+from aiogram import Bot, Dispatcher, types
+from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
+from aiogram.contrib.fsm_storage.memory import MemoryStorage
+from aiogram.dispatcher import FSMContext
+from aiogram.dispatcher.filters.state import State, StatesGroup
+from aiogram.utils import executor
+import gspread
+from oauth2client.service_account import ServiceAccountCredentials
+from datetime import datetime
 import os
-from aiogram import Bot, Dispatcher, types, F
-from aiogram.enums import ParseMode
-from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton
-from aiogram.fsm.context import FSMContext
-from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.fsm.state import StatesGroup, State
-from gsheet import write_to_gsheet
+
+logging.basicConfig(level=logging.INFO)
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 
-bot = Bot(token=BOT_TOKEN)
-dp = Dispatcher(bot=bot, storage=MemoryStorage(), parse_mode=ParseMode.HTML)
+bot = Bot(token=BOT_TOKEN, parse_mode="HTML")
+storage = MemoryStorage()
+dp = Dispatcher(bot, storage=storage)
 
+# === Google Sheets Setup ===
+scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+creds = ServiceAccountCredentials.from_json_keyfile_name("creds.json", scope)
+client = gspread.authorize(creds)
+sheet = client.open("CPAauto").sheet1
+
+# === FSM States ===
 class Form(StatesGroup):
-    deal_type = State()
+    name = State()
+    payment = State()
     car_brand = State()
     budget = State()
     contact = State()
     comment = State()
 
-main_kb = ReplyKeyboardMarkup(
-    keyboard=[
-        [KeyboardButton(text="Купить в кредит")],
-        [KeyboardButton(text="Купить за наличные")],
-        [KeyboardButton(text="Купить в лизинг")],
-        [KeyboardButton(text="Купить в трейд-ин")],
-    ],
-    resize_keyboard=True,
-    one_time_keyboard=True
-)
+# === Start ===
+@dp.message_handler(commands="start")
+async def cmd_start(message: types.Message):
+    await message.answer("Как вас зовут?")
+    await Form.name.set()
 
-@dp.message(F.text.lower().in_(["/start", "начать", "подобрать авто"]))
-async def cmd_start(message: Message, state: FSMContext):
-    await state.clear()
-    await message.answer("Выберите способ покупки:", reply_markup=main_kb)
-    await state.set_state(Form.deal_type)
+@dp.message_handler(state=Form.name)
+async def process_name(message: types.Message, state: FSMContext):
+    await state.update_data(name=message.text)
+    kb = ReplyKeyboardMarkup(resize_keyboard=True)
+    kb.add("Купить в кредит", "Купить за наличные", "Купить в трейд-ин", "Лизинг")
+    await message.answer("Выберите способ покупки:", reply_markup=kb)
+    await Form.payment.set()
 
-@dp.message(Form.deal_type)
-async def process_deal_type(message: Message, state: FSMContext):
-    await state.update_data(deal_type=message.text)
-    await message.answer("Введите марку автомобиля:")
-    await state.set_state(Form.car_brand)
+@dp.message_handler(state=Form.payment)
+async def process_payment(message: types.Message, state: FSMContext):
+    await state.update_data(payment=message.text)
+    await message.answer("Введите марку автомобиля:", reply_markup=types.ReplyKeyboardRemove())
+    await Form.car_brand.set()
 
-@dp.message(Form.car_brand)
-async def process_brand(message: Message, state: FSMContext):
+@dp.message_handler(state=Form.car_brand)
+async def process_car_brand(message: types.Message, state: FSMContext):
     await state.update_data(car_brand=message.text)
     await message.answer("Укажите бюджет:")
-    await state.set_state(Form.budget)
+    await Form.budget.set()
 
-@dp.message(Form.budget)
-async def process_budget(message: Message, state: FSMContext):
+@dp.message_handler(state=Form.budget)
+async def process_budget(message: types.Message, state: FSMContext):
     await state.update_data(budget=message.text)
-    contact_kb = ReplyKeyboardMarkup(
-        keyboard=[[KeyboardButton(text="📱 Отправить телефон", request_contact=True)]],
-        resize_keyboard=True,
-        one_time_keyboard=True
-    )
-    await message.answer("Оставьте ваш номер телефона:", reply_markup=contact_kb)
-    await state.set_state(Form.contact)
+    kb = ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
+    kb.add(KeyboardButton("Отправить номер телефона", request_contact=True))
+    await message.answer("Оставьте ваш номер телефона:", reply_markup=kb)
+    await Form.contact.set()
 
-@dp.message(Form.contact)
-@dp.message(F.contact)
-async def process_contact(message: Message, state: FSMContext):
-    contact = message.contact.phone_number if message.contact else message.text
-    await state.update_data(contact=contact)
-    await message.answer("Добавьте комментарий или удобное время для звонка:")
-    await state.set_state(Form.comment)
+@dp.message_handler(content_types=types.ContentType.CONTACT, state=Form.contact)
+async def process_contact(message: types.Message, state: FSMContext):
+    await state.update_data(contact=message.contact.phone_number)
+    await message.answer("Добавьте комментарий или удобное время для звонка:", reply_markup=types.ReplyKeyboardRemove())
+    await Form.comment.set()
 
-@dp.message(Form.comment)
-async def process_comment(message: Message, state: FSMContext):
+@dp.message_handler(state=Form.comment)
+async def process_comment(message: types.Message, state: FSMContext):
     await state.update_data(comment=message.text)
     data = await state.get_data()
-    write_to_gsheet(data)
-    await message.answer("Спасибо! Наш специалист скоро с вами свяжется.")
-    await state.clear()
 
-async def main():
-    await dp.start_polling(bot)
+    row = [
+        datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        data.get("payment", ""),
+        data.get("car_brand", ""),
+        data.get("name", ""),
+        data.get("contact", ""),
+        data.get("budget", ""),
+        message.from_user.city if hasattr(message.from_user, "city") else "",
+        data.get("comment", "")
+    ]
 
-if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        sheet.append_row(row)
+        await message.answer("Спасибо! Заявка отправлена ✅")
+    except Exception as e:
+        logging.error(f"Ошибка при записи в таблицу: {e}")
+        await message.answer("Произошла ошибка при сохранении данных. Попробуйте позже.")
+
+    await state.finish()
