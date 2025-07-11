@@ -106,7 +106,7 @@ def finish_submission(chat_id):
 💰 Бюджет: {data.get('budget')}
 📍 Город: {data.get('city')}
 📞 Телефон: {data.get('phone')}"""
-    )
+    
     bot.send_message(chat_id, msg, reply_markup=types.ReplyKeyboardRemove())
 
     # Предложение отправить новую заявку
