@@ -1,6 +1,13 @@
 services:
   - type: worker
-    name: cpa-auto-bot
+    name: CPAautoBot
     env: python
     buildCommand: "pip install -r requirements.txt"
     startCommand: "python bot.py"
+    envVars:
+      - key: BOT_TOKEN
+        fromEnvVar: BOT_TOKEN
+      - key: GOOGLE_CREDS_JSON
+        fromEnvVar: GOOGLE_CREDS_JSON
+      - key: SHEET_ID
+        fromEnvVar: SHEET_ID
