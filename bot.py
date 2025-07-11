@@ -4,7 +4,12 @@ from oauth2client.service_account import ServiceAccountCredentials
 
 # Настройка доступа к Google Таблицам
 scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-creds = ServiceAccountCredentials.from_json_keyfile_name("creds.json", scope)
+import json
+import os
+
+creds_json = os.getenv('GOOGLE_CREDS_JSON')
+creds_dict = json.loads(creds_json)
+creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
 client = gspread.authorize(creds)
 
 # Открытие таблицы
