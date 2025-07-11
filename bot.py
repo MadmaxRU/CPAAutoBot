@@ -1,122 +1,95 @@
-
+import datetime
+import gspread
+import telebot
 import os
-import asyncio
-from aiogram import Bot, Dispatcher, types
-from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
-from aiogram.fsm.state import State, StatesGroup
-from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.fsm.context import FSMContext
-from aiogram.filters import CommandStart
-from aiogram.enums import ParseMode
-from gspread import service_account
+import json
 from oauth2client.service_account import ServiceAccountCredentials
-from datetime import datetime
 
+# Получаем данные из переменных окружения
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 GOOGLE_CREDS_JSON = os.getenv("GOOGLE_CREDS_JSON")
 SHEET_ID = os.getenv("SHEET_ID")
 
-# FSM состояние
-class Form(StatesGroup):
-    name = State()
-    payment_method = State()
-    car_brand = State()
-    budget = State()
-    city = State()
-    phone = State()
-    comment = State()
+# Авторизация в Google Sheets
+scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+creds_dict = json.loads(GOOGLE_CREDS_JSON)
+credentials = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+client = gspread.authorize(credentials)
+sheet = client.open_by_key(SHEET_ID).worksheet("Sheet1")
 
-# Инициализация бота
-bot = Bot(token=BOT_TOKEN, parse_mode=ParseMode.HTML)
-storage = MemoryStorage()
-dp = Dispatcher(storage=storage)
+# Создаем бота
+bot = telebot.TeleBot(BOT_TOKEN)
 
-@dp.message(CommandStart())
-async def start(message: types.Message, state: FSMContext):
-    await message.answer("Как вас зовут?")
-    await state.set_state(Form.name)
+# Временное хранилище состояний
+user_data = {}
 
-@dp.message(Form.name)
-async def name_handler(message: types.Message, state: FSMContext):
-    await state.update_data(name=message.text)
+# Старт
+@bot.message_handler(commands=["start"])
+def start_handler(message):
+    user_data[message.chat.id] = {}
+    bot.send_message(message.chat.id, "Как вас зовут?")
 
-    keyboard = ReplyKeyboardMarkup(
-        keyboard=[
-            [KeyboardButton(text="Наличные")],
-            [KeyboardButton(text="Кредит")],
-            [KeyboardButton(text="Лизинг")],
-            [KeyboardButton(text="Трейд-ин")]
-        ],
-        resize_keyboard=True,
-        one_time_keyboard=True
-    )
+# Имя
+@bot.message_handler(func=lambda message: message.chat.id in user_data and "name" not in user_data[message.chat.id])
+def handle_name(message):
+    user_data[message.chat.id]["name"] = message.text
+    markup = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
+    markup.add("Наличные", "Кредит", "Лизинг", "Трейд-ин")
+    bot.send_message(message.chat.id, "Выберите способ покупки:", reply_markup=markup)
 
-    await message.answer("Выберите способ покупки:", reply_markup=keyboard)
-    await state.set_state(Form.payment_method)
+# Способ оплаты
+@bot.message_handler(func=lambda message: message.chat.id in user_data and "payment" not in user_data[message.chat.id])
+def handle_payment(message):
+    user_data[message.chat.id]["payment"] = message.text
+    bot.send_message(message.chat.id, "Введите марку автомобиля:")
 
-@dp.message(Form.payment_method)
-async def payment_handler(message: types.Message, state: FSMContext):
-    await state.update_data(payment_method=message.text)
-    await message.answer("Введите марку автомобиля:")
-    await state.set_state(Form.car_brand)
+# Марка авто
+@bot.message_handler(func=lambda message: message.chat.id in user_data and "brand" not in user_data[message.chat.id])
+def handle_brand(message):
+    user_data[message.chat.id]["brand"] = message.text
+    bot.send_message(message.chat.id, "Укажите бюджет:")
 
-@dp.message(Form.car_brand)
-async def car_handler(message: types.Message, state: FSMContext):
-    await state.update_data(car_brand=message.text)
-    await message.answer("Укажите бюджет:")
-    await state.set_state(Form.budget)
+# Бюджет
+@bot.message_handler(func=lambda message: message.chat.id in user_data and "budget" not in user_data[message.chat.id])
+def handle_budget(message):
+    user_data[message.chat.id]["budget"] = message.text
+    bot.send_message(message.chat.id, "Укажите город:")
 
-@dp.message(Form.budget)
-async def budget_handler(message: types.Message, state: FSMContext):
-    await state.update_data(budget=message.text)
-    await message.answer("Укажите город:")
-    await state.set_state(Form.city)
+# Город
+@bot.message_handler(func=lambda message: message.chat.id in user_data and "city" not in user_data[message.chat.id])
+def handle_city(message):
+    user_data[message.chat.id]["city"] = message.text
+    bot.send_message(message.chat.id, "Оставьте ваш номер телефона:")
 
-@dp.message(Form.city)
-async def city_handler(message: types.Message, state: FSMContext):
-    await state.update_data(city=message.text)
-    await message.answer("Оставьте ваш номер телефона:")
-    await state.set_state(Form.phone)
+# Телефон
+@bot.message_handler(func=lambda message: message.chat.id in user_data and "phone" not in user_data[message.chat.id])
+def handle_phone(message):
+    user_data[message.chat.id]["phone"] = message.text
+    bot.send_message(message.chat.id, "Добавьте комментарий или удобное время для звонка:")
 
-@dp.message(Form.phone)
-async def phone_handler(message: types.Message, state: FSMContext):
-    await state.update_data(phone=message.text)
-    await message.answer("Добавьте комментарий или удобное время для звонка:")
-    await state.set_state(Form.comment)
+# Комментарий и финал
+@bot.message_handler(func=lambda message: message.chat.id in user_data and "comment" not in user_data[message.chat.id])
+def handle_comment(message):
+    user_data[message.chat.id]["comment"] = message.text
+    save_to_sheet(message.chat.id)
+    bot.send_message(message.chat.id, "✅ Заявка принята. Мы свяжемся с вами в ближайшее время!")
+    user_data.pop(message.chat.id)
 
-@dp.message(Form.comment)
-async def comment_handler(message: types.Message, state: FSMContext):
-    await state.update_data(comment=message.text)
-    data = await state.get_data()
+# Сохраняем в Google Таблицу
+def save_to_sheet(chat_id):
+    data = user_data[chat_id]
+    now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    row = [
+        now,
+        data.get("payment", ""),
+        data.get("brand", ""),
+        "",  # Название юр лица
+        "",  # Email
+        f"{data.get('name', '')} | {data.get('phone', '')}",
+        data.get("budget", ""),
+        data.get("city", ""),
+        data.get("comment", "")
+    ]
+    sheet.append_row(row)
 
-    # Запись в Google Sheets
-    write_to_gsheet([
-        datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        data.get("name"),
-        data.get("payment_method"),
-        data.get("car_brand"),
-        data.get("budget"),
-        data.get("city"),
-        data.get("phone"),
-        data.get("comment")
-    ])
-
-    await message.answer("Спасибо! Ваша заявка отправлена. Мы свяжемся с вами в ближайшее время.")
-    await state.clear()
-
-def write_to_gsheet(row):
-    creds = ServiceAccountCredentials.from_json_keyfile_name(GOOGLE_CREDS_JSON, [
-        "https://spreadsheets.google.com/feeds",
-        "https://www.googleapis.com/auth/spreadsheets",
-        "https://www.googleapis.com/auth/drive"
-    ])
-    gc = service_account(filename=GOOGLE_CREDS_JSON)
-    sh = gc.open_by_key(SHEET_ID)
-    worksheet = sh.sheet1
-    worksheet.append_row(row)
-
-async def main():
-    await dp.start_polling(bot)
-
-if __name__ == "__main__":
-    asyncio.run(main())
+bot.polling(none_stop=True)
