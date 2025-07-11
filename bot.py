@@ -1,99 +1,98 @@
-import logging
-from aiogram import Bot, Dispatcher, types
-from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
-from aiogram.contrib.fsm_storage.memory import MemoryStorage
-from aiogram.dispatcher import FSMContext
-from aiogram.dispatcher.filters.state import State, StatesGroup
-from aiogram.utils import executor
+
+import asyncio
+from aiogram import Bot, Dispatcher, F
+from aiogram.types import Message, Contact
+from aiogram.filters import CommandStart
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
+from aiogram.fsm.storage.memory import MemoryStorage
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 from datetime import datetime
 import os
 
-logging.basicConfig(level=logging.INFO)
-
 BOT_TOKEN = os.getenv("BOT_TOKEN")
+GOOGLE_SHEET_ID = os.getenv("GOOGLE_SHEET_ID")
+GOOGLE_CREDENTIALS_JSON = os.getenv("GOOGLE_CREDENTIALS_JSON")
 
-bot = Bot(token=BOT_TOKEN, parse_mode="HTML")
-storage = MemoryStorage()
-dp = Dispatcher(bot, storage=storage)
-
-# === Google Sheets Setup ===
-scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-creds = ServiceAccountCredentials.from_json_keyfile_name("creds.json", scope)
-client = gspread.authorize(creds)
-sheet = client.open("CPAauto").sheet1
-
-# === FSM States ===
+# FSM состояния
 class Form(StatesGroup):
     name = State()
-    payment = State()
+    payment_method = State()
     car_brand = State()
     budget = State()
     contact = State()
     comment = State()
 
-# === Start ===
-@dp.message_handler(commands="start")
-async def cmd_start(message: types.Message):
+# Бот и диспетчер
+bot = Bot(token=BOT_TOKEN)
+storage = MemoryStorage()
+dp = Dispatcher(storage=storage)
+
+# Обработка команды /start
+@dp.message(CommandStart())
+async def start(message: Message, state: FSMContext):
+    await state.set_state(Form.name)
     await message.answer("Как вас зовут?")
-    await Form.name.set()
 
-@dp.message_handler(state=Form.name)
-async def process_name(message: types.Message, state: FSMContext):
+@dp.message(Form.name)
+async def get_name(message: Message, state: FSMContext):
     await state.update_data(name=message.text)
-    kb = ReplyKeyboardMarkup(resize_keyboard=True)
-    kb.add("Купить в кредит", "Купить за наличные", "Купить в трейд-ин", "Лизинг")
-    await message.answer("Выберите способ покупки:", reply_markup=kb)
-    await Form.payment.set()
+    await state.set_state(Form.payment_method)
+    await message.answer("Выберите способ покупки:
+1. Кредит
+2. Наличные
+3. Лизинг
+4. Купить в трейд-ин")
 
-@dp.message_handler(state=Form.payment)
-async def process_payment(message: types.Message, state: FSMContext):
-    await state.update_data(payment=message.text)
-    await message.answer("Введите марку автомобиля:", reply_markup=types.ReplyKeyboardRemove())
-    await Form.car_brand.set()
+@dp.message(Form.payment_method)
+async def get_payment_method(message: Message, state: FSMContext):
+    await state.update_data(payment_method=message.text)
+    await state.set_state(Form.car_brand)
+    await message.answer("Введите марку автомобиля:")
 
-@dp.message_handler(state=Form.car_brand)
-async def process_car_brand(message: types.Message, state: FSMContext):
+@dp.message(Form.car_brand)
+async def get_car_brand(message: Message, state: FSMContext):
     await state.update_data(car_brand=message.text)
+    await state.set_state(Form.budget)
     await message.answer("Укажите бюджет:")
-    await Form.budget.set()
 
-@dp.message_handler(state=Form.budget)
-async def process_budget(message: types.Message, state: FSMContext):
+@dp.message(Form.budget)
+async def get_budget(message: Message, state: FSMContext):
     await state.update_data(budget=message.text)
-    kb = ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
-    kb.add(KeyboardButton("Отправить номер телефона", request_contact=True))
-    await message.answer("Оставьте ваш номер телефона:", reply_markup=kb)
-    await Form.contact.set()
+    await state.set_state(Form.contact)
+    await message.answer("Оставьте ваш номер телефона:")
 
-@dp.message_handler(content_types=types.ContentType.CONTACT, state=Form.contact)
-async def process_contact(message: types.Message, state: FSMContext):
-    await state.update_data(contact=message.contact.phone_number)
-    await message.answer("Добавьте комментарий или удобное время для звонка:", reply_markup=types.ReplyKeyboardRemove())
-    await Form.comment.set()
+@dp.message(Form.contact)
+async def get_contact(message: Message, state: FSMContext):
+    await state.update_data(contact=message.text)
+    await state.set_state(Form.comment)
+    await message.answer("Добавьте комментарий или удобное время для звонка:")
 
-@dp.message_handler(state=Form.comment)
-async def process_comment(message: types.Message, state: FSMContext):
+@dp.message(Form.comment)
+async def get_comment(message: Message, state: FSMContext):
     await state.update_data(comment=message.text)
     data = await state.get_data()
 
-    row = [
-        datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        data.get("payment", ""),
-        data.get("car_brand", ""),
-        data.get("name", ""),
-        data.get("contact", ""),
-        data.get("budget", ""),
-        message.from_user.city if hasattr(message.from_user, "city") else "",
-        data.get("comment", "")
-    ]
+    # Сохраняем в Google Таблицу
+    await write_to_gsheet(data)
 
-    try:
-        sheet.append_row(row)
-        await message.answer("Спасибо! Заявка отправлена ✅")
-    except Exception as e:
-        logging.error(f"Ошибка при записи в таблицу: {e}")
-        await message.answer("Произошла ошибка при сохранении данных. Попробуйте позже.")
+    await message.answer("Спасибо! Ваша заявка отправлена.")
+    await state.clear()
 
-    await state.finish()
+async def write_to_gsheet(data):
+    scope = ['https://spreadsheets.google.com/feeds',
+             'https://www.googleapis.com/auth/drive']
+    creds = ServiceAccountCredentials.from_json_keyfile_name(GOOGLE_CREDENTIALS_JSON, scope)
+    client = gspread.authorize(creds)
+    sheet = client.open_by_key(GOOGLE_SHEET_ID).sheet1
+    now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    row = [now, data.get("payment_method"), data.get("car_brand"), "", data.get("contact"),
+           data.get("budget"), "", data.get("comment"), data.get("name")]
+    sheet.append_row(row)
+
+async def main():
+    await dp.start_polling(bot)
+
+if __name__ == "__main__":
+    asyncio.run(main())
