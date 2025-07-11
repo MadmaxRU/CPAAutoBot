@@ -1,128 +1,103 @@
 
+import datetime
 import gspread
-from oauth2client.service_account import ServiceAccountCredentials
-
-# Настройка доступа к Google Таблицам
-scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-import json
-import os
-
-creds_json = os.getenv('GOOGLE_CREDS_JSON')
-creds_dict = json.loads(creds_json)
-creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
-client = gspread.authorize(creds)
-
-# Открытие таблицы
-sheet = client.open("CPAauto Leads").sheet1
-
-def send_to_google_sheet(data):
-    row = [
-        data.get("name", ""),
-        data.get("method", ""),
-        data.get("brand", ""),
-        data.get("budget", ""),
-        data.get("city", ""),
-        data.get("phone", "")
-    ]
-    sheet.append_row(row)
-
-
-
 import telebot
 from telebot import types
+import os
+import json
+from oauth2client.service_account import ServiceAccountCredentials
 
-bot = telebot.TeleBot("YOUR_TELEGRAM_BOT_TOKEN")
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+GOOGLE_CREDS_JSON = os.getenv("GOOGLE_CREDS_JSON")
+SHEET_ID = os.getenv("SHEET_ID")
 
+# Авторизация в Google Sheets
+scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+creds_dict = json.loads(GOOGLE_CREDS_JSON)
+credentials = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+client = gspread.authorize(credentials)
+sheet = client.open_by_key(SHEET_ID).worksheet("Sheet1")
+
+bot = telebot.TeleBot(BOT_TOKEN)
 user_data = {}
 
-def reset_user(chat_id):
-    user_data[chat_id] = {
-        "state": "ask_name",
-        "data": {}
-    }
+@bot.message_handler(commands=["start", "reset"])
+def start_handler(message):
+    user_data[message.chat.id] = {}
+    bot.send_message(message.chat.id, "👤 Как вас зовут?")
 
-@bot.message_handler(commands=['start'])
-def start(message):
-    chat_id = message.chat.id
-    reset_user(chat_id)
-    bot.send_message(chat_id, "Привет! Как к вам можно обращаться?")
+@bot.message_handler(func=lambda message: message.chat.id in user_data and "name" not in user_data[message.chat.id])
+def name_handler(message):
+    user_data[message.chat.id]["name"] = message.text
+    markup = types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
+    phone_btn = types.KeyboardButton("📞 Отправить номер", request_contact=True)
+    markup.add(phone_btn)
+    bot.send_message(message.chat.id, "📱 Поделитесь номером телефона:", reply_markup=markup)
 
-@bot.message_handler(content_types=['contact'])
+@bot.message_handler(content_types=["contact"])
 def contact_handler(message):
-    chat_id = message.chat.id
-    phone = message.contact.phone_number
-    user_data[chat_id]["data"]["phone"] = phone
+    user_data[message.chat.id]["phone"] = message.contact.phone_number
+    bot.send_message(message.chat.id, "🏙 В каком городе вы находитесь?", reply_markup=types.ReplyKeyboardRemove())
 
-    finish_submission(chat_id)
+@bot.message_handler(func=lambda message: message.chat.id in user_data and "phone" in user_data[message.chat.id] and "city" not in user_data[message.chat.id])
+def city_handler(message):
+    user_data[message.chat.id]["city"] = message.text
+    markup = types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
+    methods = ["Наличные", "Кредит", "Лизинг", "Трейд-ин"]
+    for method in methods:
+        markup.add(types.KeyboardButton(method))
+    bot.send_message(message.chat.id, "💰 Какой способ покупки вас интересует?", reply_markup=markup)
 
-@bot.message_handler(func=lambda message: True)
-def handle_message(message):
-    chat_id = message.chat.id
+@bot.message_handler(func=lambda message: message.chat.id in user_data and "payment_method" not in user_data[message.chat.id])
+def payment_method_handler(message):
+    user_data[message.chat.id]["payment_method"] = message.text
+    if message.text == "Лизинг":
+        bot.send_message(message.chat.id, "🏢 Укажите название юр. лица (ИП или ООО):")
+    else:
+        bot.send_message(message.chat.id, "🚗 Укажите марку автомобиля:")
 
-    if chat_id not in user_data:
-        reset_user(chat_id)
+@bot.message_handler(func=lambda message: message.chat.id in user_data and user_data[message.chat.id].get("payment_method") == "Лизинг" and "company" not in user_data[message.chat.id])
+def company_handler(message):
+    user_data[message.chat.id]["company"] = message.text
+    bot.send_message(message.chat.id, "📧 Укажите ваш email:")
 
-    state = user_data[chat_id]["state"]
-    text = message.text.strip()
+@bot.message_handler(func=lambda message: message.chat.id in user_data and user_data[message.chat.id].get("payment_method") == "Лизинг" and "email" not in user_data[message.chat.id])
+def email_handler(message):
+    user_data[message.chat.id]["email"] = message.text
+    bot.send_message(message.chat.id, "🚗 Укажите марку автомобиля:")
 
-    if state == "ask_name":
-        user_data[chat_id]["data"]["name"] = text
-        user_data[chat_id]["state"] = "ask_method"
-        markup = types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
-        markup.add("Наличные", "Кредит", "Лизинг", "Трейд-ин")
-        bot.send_message(chat_id, "Выберите способ покупки:", reply_markup=markup)
+@bot.message_handler(func=lambda message: message.chat.id in user_data and "car_brand" not in user_data[message.chat.id])
+def car_handler(message):
+    user_data[message.chat.id]["car_brand"] = message.text
+    markup = types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
+    budget_options = ["1–2 млн", "2–4 млн", "4–6 млн", "6–10 млн", "Больше 10 млн"]
+    for b in budget_options:
+        markup.add(types.KeyboardButton(b))
+    bot.send_message(message.chat.id, "💵 Укажите ваш бюджет:", reply_markup=markup)
 
-    elif state == "ask_method":
-        user_data[chat_id]["data"]["method"] = text
-        user_data[chat_id]["state"] = "ask_brand"
-        bot.send_message(chat_id, "Введите марку автомобиля:", reply_markup=types.ReplyKeyboardRemove())
+@bot.message_handler(func=lambda message: message.chat.id in user_data and "budget" not in user_data[message.chat.id])
+def budget_handler(message):
+    user_data[message.chat.id]["budget"] = message.text
+    bot.send_message(message.chat.id, "🗓 Добавьте комментарий или удобное время для звонка (по желанию):")
 
-    elif state == "ask_brand":
-        user_data[chat_id]["data"]["brand"] = text
-        user_data[chat_id]["state"] = "ask_budget"
-        bot.send_message(chat_id, "Укажите бюджет:")
+@bot.message_handler(func=lambda message: message.chat.id in user_data and "comment" not in user_data[message.chat.id])
+def comment_handler(message):
+    user_data[message.chat.id]["comment"] = message.text
 
-    elif state == "ask_budget":
-        user_data[chat_id]["data"]["budget"] = text
-        user_data[chat_id]["state"] = "ask_city"
-        bot.send_message(chat_id, "Укажите город:")
+    # Отправка в таблицу
+    data = user_data[message.chat.id]
+    sheet.append_row([
+        data.get("name", ""),
+        data.get("phone", ""),
+        data.get("city", ""),
+        data.get("payment_method", ""),
+        data.get("company", ""),
+        data.get("email", ""),
+        data.get("car_brand", ""),
+        data.get("budget", ""),
+        data.get("comment", ""),
+        datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    ])
+    bot.send_message(message.chat.id, "✅ Заявка принята! Спасибо, мы свяжемся с вами.")
 
-    elif state == "ask_city":
-        user_data[chat_id]["data"]["city"] = text
-        user_data[chat_id]["state"] = "ask_phone"
-        markup = types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
-        button = types.KeyboardButton("📱 Поделиться номером телефона", request_contact=True)
-        markup.add(button)
-        bot.send_message(chat_id, "Оставьте ваш номер телефона:", reply_markup=markup)
-
-    elif state == "ask_phone":
-        user_data[chat_id]["data"]["phone"] = text
-        finish_submission(chat_id)
-
-def finish_submission(chat_id):
-    data = user_data[chat_id]["data"]
-
-    send_to_google_sheet(data)
-
-    # Отправка финального сообщения
-    msg = f"""✅ Спасибо, {data.get('name', '')}! Ваша заявка принята.
-📌 Способ покупки: {data.get('method')}
-🚗 Марка авто: {data.get('brand')}
-💰 Бюджет: {data.get('budget')}
-📍 Город: {data.get('city')}
-📞 Телефон: {data.get('phone')}"""
-    
-    bot.send_message(chat_id, msg, reply_markup=types.ReplyKeyboardRemove())
-
-    # Предложение отправить новую заявку
-    markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    markup.add("🔄 Отправить ещё одну заявку")
-    bot.send_message(chat_id, "Хотите отправить ещё одну заявку?", reply_markup=markup)
-
-    user_data[chat_id]["state"] = "wait_restart"
-
-@bot.message_handler(func=lambda message: message.text == "🔄 Отправить ещё одну заявку")
-def restart(message):
-    start(message)
-
-bot.polling(none_stop=True)
+bot.infinity_polling()
