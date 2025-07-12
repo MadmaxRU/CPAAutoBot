@@ -1,49 +1,95 @@
-
-import telebot
-from telebot import types
-import json
+import datetime
 import gspread
+import telebot
+import os
+import json
 from oauth2client.service_account import ServiceAccountCredentials
-from gsheets import save_to_sheet
 
-BOT_TOKEN = 'YOUR_TOKEN'
-GOOGLE_CREDS_JSON = 'YOUR_CREDENTIALS_JSON'
-SHEET_ID = 'YOUR_SHEET_ID'
+# Получаем данные из переменных окружения
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+GOOGLE_CREDS_JSON = os.getenv("GOOGLE_CREDS_JSON")
+SHEET_ID = os.getenv("SHEET_ID")
 
+# Авторизация в Google Sheets
+scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+creds_dict = json.loads(GOOGLE_CREDS_JSON)
+credentials = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+client = gspread.authorize(credentials)
+sheet = client.open_by_key(SHEET_ID).worksheet("Sheet1")
+
+# Создаем бота
 bot = telebot.TeleBot(BOT_TOKEN)
+
+# Временное хранилище состояний
 user_data = {}
 
-regions = ["Москва", "Санкт-Петербург", "Краснодар", "Екатеринбург", "Новосибирск", "Другой регион"]
-
-@bot.message_handler(commands=['start', 'reset'])
+# Старт
+@bot.message_handler(commands=["start"])
 def start_handler(message):
     user_data[message.chat.id] = {}
-    bot.send_message(message.chat.id, "🎯 Добро пожаловать! Здесь вы получите скидки до 20% и подарки на новое авто. 🚗\n\n👋 Давайте познакомимся! 🧑‍💼 Как вас зовут?")
+    bot.send_message(message.chat.id, "Как вас зовут?")
 
-@bot.message_handler(func=lambda m: m.chat.id in user_data and "name" not in user_data[m.chat.id])
-def name_handler(message):
+# Имя
+@bot.message_handler(func=lambda message: message.chat.id in user_data and "name" not in user_data[message.chat.id])
+def handle_name(message):
     user_data[message.chat.id]["name"] = message.text
-    keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
-    button = types.KeyboardButton("📱 Поделиться номером телефона", request_contact=True)
-    keyboard.add(button)
-    bot.send_message(message.chat.id, "📱 Поделитесь номером телефона:", reply_markup=keyboard)
+    markup = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
+    markup.add("Наличные", "Кредит", "Лизинг", "Трейд-ин")
+    bot.send_message(message.chat.id, "Выберите способ покупки:", reply_markup=markup)
 
-@bot.message_handler(content_types=['contact'])
-def contact_handler(message):
-    if message.contact is not None:
-        user_data[message.chat.id]["phone"] = message.contact.phone_number
-        markup = types.ReplyKeyboardRemove()
-        keyboard = types.InlineKeyboardMarkup()
-        for region in regions:
-            keyboard.add(types.InlineKeyboardButton(region, callback_data=f"region_{region}"))
-        bot.send_message(message.chat.id, "🏙 В каком городе вы находитесь?", reply_markup=markup)
-        bot.send_message(message.chat.id, "Выберите ваш город:", reply_markup=keyboard)
+# Способ оплаты
+@bot.message_handler(func=lambda message: message.chat.id in user_data and "payment" not in user_data[message.chat.id])
+def handle_payment(message):
+    user_data[message.chat.id]["payment"] = message.text
+    bot.send_message(message.chat.id, "Введите марку автомобиля:")
 
-@bot.callback_query_handler(func=lambda call: call.data.startswith("region_"))
-def region_handler(call):
-    region = call.data.replace("region_", "")
-    user_data[call.message.chat.id]["region"] = region
-    save_to_sheet(user_data[call.message.chat.id])
-    bot.send_message(call.message.chat.id, "✅ Спасибо! Ваша заявка принята. Наш специалист скоро свяжется с вами.\n\n🔁 Чтобы оставить новую заявку — введите /start")
+# Марка авто
+@bot.message_handler(func=lambda message: message.chat.id in user_data and "brand" not in user_data[message.chat.id])
+def handle_brand(message):
+    user_data[message.chat.id]["brand"] = message.text
+    bot.send_message(message.chat.id, "Укажите бюджет:")
+
+# Бюджет
+@bot.message_handler(func=lambda message: message.chat.id in user_data and "budget" not in user_data[message.chat.id])
+def handle_budget(message):
+    user_data[message.chat.id]["budget"] = message.text
+    bot.send_message(message.chat.id, "Укажите город:")
+
+# Город
+@bot.message_handler(func=lambda message: message.chat.id in user_data and "city" not in user_data[message.chat.id])
+def handle_city(message):
+    user_data[message.chat.id]["city"] = message.text
+    bot.send_message(message.chat.id, "Оставьте ваш номер телефона:")
+
+# Телефон
+@bot.message_handler(func=lambda message: message.chat.id in user_data and "phone" not in user_data[message.chat.id])
+def handle_phone(message):
+    user_data[message.chat.id]["phone"] = message.text
+    bot.send_message(message.chat.id, "Добавьте комментарий или удобное время для звонка:")
+
+# Комментарий и финал
+@bot.message_handler(func=lambda message: message.chat.id in user_data and "comment" not in user_data[message.chat.id])
+def handle_comment(message):
+    user_data[message.chat.id]["comment"] = message.text
+    save_to_sheet(message.chat.id)
+    bot.send_message(message.chat.id, "✅ Заявка принята. Мы свяжемся с вами в ближайшее время!")
+    user_data.pop(message.chat.id)
+
+# Сохраняем в Google Таблицу
+def save_to_sheet(chat_id):
+    data = user_data[chat_id]
+    now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    row = [
+        now,
+        data.get("payment", ""),
+        data.get("brand", ""),
+        "",  # Название юр лица
+        "",  # Email
+        f"{data.get('name', '')} | {data.get('phone', '')}",
+        data.get("budget", ""),
+        data.get("city", ""),
+        data.get("comment", "")
+    ]
+    sheet.append_row(row)
 
 bot.polling(none_stop=True)
