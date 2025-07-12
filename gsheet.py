@@ -1,16 +1,20 @@
-import gspread
-import os
-from oauth2client.service_account import ServiceAccountCredentials
 
-def write_to_gsheet(data):
-    scopes = ['https://www.googleapis.com/auth/spreadsheets']
-    credentials = ServiceAccountCredentials.from_json_keyfile_name("credentials.json", scopes)
-    client = gspread.authorize(credentials)
-    sheet = client.open("CPAauto").worksheet("Лист1")
+import gspread
+from oauth2client.service_account import ServiceAccountCredentials
+import json
+
+GOOGLE_CREDS_JSON = 'YOUR_CREDENTIALS_JSON'
+SHEET_ID = 'YOUR_SHEET_ID'
+
+scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
+creds_dict = json.loads(GOOGLE_CREDS_JSON)
+credentials = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+client = gspread.authorize(credentials)
+sheet = client.open_by_key(SHEET_ID).sheet1
+
+def save_to_sheet(data):
     sheet.append_row([
-        data.get("deal_type", ""),
-        data.get("car_brand", ""),
-        data.get("budget", ""),
-        data.get("contact", ""),
-        data.get("comment", "")
+        data.get("name", ""),
+        data.get("phone", ""),
+        data.get("region", "")
     ])
