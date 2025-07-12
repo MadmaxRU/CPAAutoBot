@@ -27,10 +27,9 @@ brands = ["Toyota", "BMW", "Hyundai", "Kia", "Lada", "Mercedes", "Volkswagen", "
 @bot.message_handler(commands=["start", "reset"])
 def start_handler(message):
     user_data[message.chat.id] = {}
-    bot.send_message(message.chat.id, "🎯 Добро пожаловать! Здесь вы получите максимальную скидку на новое авто. 🚗
+    bot.send_message(message.chat.id, "🎯 Добро пожаловать! Здесь вы получите максимальную скидку на новое авто. 🚗")
 
-👤 Как вас зовут?")
-
+ bot.send_message(message.chat.id, "👋 Давайте познакомимся! 👤 Как вас зовут?")
 @bot.message_handler(func=lambda m: m.chat.id in user_data and "name" not in user_data[m.chat.id])
 def name_handler(message):
     user_data[message.chat.id]["name"] = message.text
