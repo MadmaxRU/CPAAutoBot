@@ -84,7 +84,7 @@ def budget_handler(message):
 @bot.message_handler(func=lambda m: m.chat.id in user_data and "comment" not in user_data[m.chat.id])
 def comment_handler(message):
     user_data[message.chat.id]["comment"] = message.text
-   save_to_sheet(message.chat.id)
+save_to_sheet(message.chat.id)
 bot.send_message(message.chat.id, "✅ Заявка успешно отправлена!")
 bot.send_message(message.chat.id, "📞 Наш специалист свяжется с вами в ближайшее время.")
 bot.send_message(message.chat.id, "🔁 Чтобы начать заново, нажмите /start")
