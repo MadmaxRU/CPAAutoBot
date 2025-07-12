@@ -50,6 +50,9 @@ def contact_handler(message):
 def region_handler(call):
     region = call.data.split("_", 1)[1]
     user_data[call.message.chat.id]["city"] = region
+
+    bot.answer_callback_query(call.id)  # важно!
+
     keyboard = types.InlineKeyboardMarkup(row_width=2)
     buttons = [
         ("💵 Наличные", "pay_cash"),
